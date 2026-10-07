@@ -1,0 +1,43 @@
+{
+  "_comment": "Profile template — one file per member. evidence[] is your audit trail; every non-null field must trace to at least one evidence row.",
+  "identity": {
+    "wa_name": "Yael Example",
+    "phone": "+972500000000",
+    "full_name": "Yael Ben-David",
+    "confidence": 0.92
+  },
+  "socials": {
+    "linkedin": "https://www.linkedin.com/in/yael-ben-david-example/",
+    "x": "https://x.com/yaelexample",
+    "facebook": "",
+    "github": "",
+    "medium": "",
+    "substack": "",
+    "crunchbase": "https://www.crunchbase.com/person/yael-ben-david",
+    "website": "https://example.com",
+    "sherlock_hits": ["github.com/yaeldbd", "medium.com/@yaeldbd"]
+  },
+  "career": {
+    "headline": "Product lead → travel-tech",
+    "current_role": "Head of Product",
+    "company": "Example Journeys Ltd"
+  },
+  "ventures": {
+    "founded": [
+      {"name": "Example Journeys", "year": 2019, "url": "https://example.com/about"}
+    ],
+    "patents": []
+  },
+  "evidence": [
+    {
+      "url": "https://www.linkedin.com/in/yael-ben-david-example/",
+      "signal": "headline matches seed name + same travel-tech domain as chat context",
+      "source": "google dork: \"Yael Ben-David\" site:linkedin.com"
+    },
+    {
+      "url": "https://example.com/about",
+      "signal": "bio page lists founder role; phone not published (clean phone footprint)",
+      "source": "dork career cross-ref"
+    }
+  ]
+}
