@@ -1,79 +1,91 @@
-# people-osint-directory
+# people-osint
 
-A [Hermes Agent](https://hermes-agent.nousresearch.com/docs) skill (works as a plain toolkit too): turn a **name + phone number** seed from a chat group into a public-source professional profile card — LinkedIn-style directory entries for community members, built strictly from information a stranger could find with a search engine.
+A [Hermes Agent](https://hermes-agent.nousresearch.com/docs) skill (works as a plain toolkit too): run a **public-source investigation on a person** from whatever seed you have — name, phone number, email, social profile link, or any combination — and get back a **structured report** (JSON), not generated prose.
+
+Built for: contact checks, background research, directory enrichment, speaker/founder vetting, "who is this person" questions. Everything in the report is findable by a stranger with a search engine.
 
 ## What it does
 
-For each member seed (display name + phone):
+1. **Plans the sweep** — `scripts/dorks.py` turns the seed into a deterministic query plan (site-scoped dorks, phone in 3 formats, email exact search, cross-refs) + candidate handles. Same seed = same plan.
+2. **Runs the sweep** — you execute the queries with your search tool (the agent does this natively), collecting evidence rows: URL + *what matched* + source.
+3. **Pivots handles** — [sherlock-project](https://github.com/sherlock-project/sherlock) maps candidate handles across ~400 sites (existence, not identity).
+4. **Typed verdict** — `scripts/jev_verify.py` returns `match | no_match | insufficient` + calibrated confidence via a typed-choice classifier. **No prose LLM anywhere** — decisions are structured choices, the report is JSON.
+5. **Structured report** — `templates/report.json`: seed, verdict, profile (socials/career/ventures/location/publications), digital footprint (is the phone/email indexed? breach hits?), evidence array, recommendations.
 
-1. **Dork sweep** — 6–10 search-engine queries: name × site:linkedin/x/facebook/crunchbase/github, phone in 3 formats, non-Latin name spelling, career cross-refs. Extracts handles, roles, companies, bio links.
-2. **Sherlock pivot** — feed canonical handles to [sherlock-project](https://github.com/sherlock-project/sherlock) to map cross-platform profile existence.
-3. **Typed-choice verify** — every candidate identity goes through a deterministic *choice* classifier (`scripts/jev_verify.py`) that returns `match | no_match | insufficient` + calibrated confidence. **No prose LLM generation anywhere** — the output is a structured verdict, not generated text.
-4. **Profile JSON** — fill `templates/profile.json`; render with whatever front-end you have.
-
-Every profile carries an `evidence[]` array — URLs + signals per claim. That's the audit trail, and it's also your GDPR story: everything shown is public and traceable, and the skill mandates an opt-out path on any published directory.
+The evidence array is the audit trail: every non-null field traces to a URL. That's also your GDPR story — everything shown is public and traceable.
 
 ## Design rules (the point of this skill)
 
-- **Seeds only.** Search input is name + phone. Never feed private knowledge (chat contents, CRM, contact lists) into the search.
-- **Public only.** Anything a stranger couldn't Google doesn't go in the profile.
-- **No prose LLM.** Decisions are typed choices + confidence. Deterministic scripts do the rest.
+- **Seeds only.** Search input is exactly what the user gave. Private knowledge never enters the search.
+- **Public only.** Anything a stranger couldn't Google doesn't go in the report.
+- **No prose LLM.** Typed-choice verdicts + deterministic scripts. Structured output, not paragraphs.
 - **Light toolchain.** Web search + sherlock via pipx. No servers, no databases, no scraping farms.
-- **Never single-hit match.** Cross-check 2+ independent signals (phone/company/location/handle) before accepting an identity.
+- **Never single-hit match.** Cross-check 2+ independent signals (phone/company/location/handle) before calling it a match.
 
 ## Install
 
 ### As a Hermes skill
 
 ```bash
-git clone https://github.com/omernesh/people-osint-directory ~/.hermes/skills/osint/people-osint-directory
+git clone https://github.com/omernesh/people-osint ~/.hermes/skills/osint/people-osint
 pipx install sherlock-project          # handle pivot
 export TYPESAFE_API_KEY=...            # or put it in ~/.hermes/.env
 ```
 
-Hermes picks it up on next session start; trigger: *"enriching member profiles from name+phone seeds"*.
+Hermes picks it up on next session start; trigger: *"investigate a person from name/phone/email/social"*.
 
 ### As a standalone toolkit
 
 ```bash
-git clone https://github.com/omernesh/people-osint-directory
-cd people-osint-directory
+git clone https://github.com/omernesh/people-osint
+cd people-osint
 pipx install sherlock-project
-python3 scripts/jev_verify.py --help   # not yet interactive — import it:
 ```
 
-```python
+```bash
+# 1. deterministic query plan
+python3 scripts/dorks.py --name "Jane Doe" --phone "+15551234567" \
+    --email "jane@example.com" --social "https://x.com/janedoe"
+
+# 2. run the queries with your search tool, collect evidence rows
+
+# 3. typed verdict
+python3 - <<'EOF'
 import sys; sys.path.insert(0, "scripts")
 from jev_verify import verify_identity
 verdict, conf = verify_identity(
-    "Yael Ben-David", "+972500000000",
-    evidence=[{"url": "https://linkedin.com/in/...", "signal": "headline match", "source": "dork"}])
-# → ("match", 0.87)
+    "Jane Doe", "+15551234567",
+    evidence=[{"url": "https://linkedin.com/in/janedoe",
+               "signal": "headline matches; same company as phone cross-ref",
+               "source": "dork"}])
+print(verdict, conf)   # -> match 0.87
+EOF
 ```
 
 ### Dependencies
 
-- Python 3.10+ (stdlib only for the verifier)
+- Python 3.10+ (stdlib only for the scripts)
 - [sherlock-project](https://github.com/sherlock-project/sherlock) via pipx for the handle pivot
-- A [TypeSafe System One](https://typesafe.ai) API key for the typed verifier (`TYPESAFE_API_KEY`) — optional; without it you fall back to manual cross-checking
-- Any web search API / agent search tooling for the dork sweep
+- A [TypeSafe System One](https://typesafe.ai) API key for the typed verifier (`TYPESAFE_API_KEY`) — optional; without it you decide the verdict manually from the evidence rows
+- Any web search API / agent search tooling for the sweep
 
 ## Layout
 
 ```
 SKILL.md              # the workflow (agent-facing)
+scripts/dorks.py      # deterministic query planner (stdlib only)
 scripts/jev_verify.py # typed-choice identity verifier (stdlib only)
-templates/profile.json# output schema with dummy data
+templates/report.json # structured report schema (dummy data)
 ```
 
 ## Ethics & legal
 
-This skill only aggregates what search engines already index about a person. It does not breach accounts, buy data-broker dumps, or use private information. Still — publishing a directory of real people carries responsibility:
+This skill only aggregates what search engines already index about a person. It does not breach accounts, buy data-broker dumps, or use private information. Still — investigating real people carries responsibility:
 
-- Offer a removal/opt-out path on any public directory page.
 - Rate-limit your sweeps; don't hammer search engines.
-- Don't publish phone numbers themselves — they're the seed, not the content.
-- Check your jurisdiction (GDPR et al.) before publishing profiles of EU persons.
+- Don't publish phone numbers/emails themselves — they're seeds, not content.
+- Check your jurisdiction (GDPR et al.) before publishing profiles of EU persons; offer removal paths where applicable.
+- Stay out of breach dumps and purchased datasets — public search only.
 
 ## License
 

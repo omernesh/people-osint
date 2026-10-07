@@ -1,0 +1,43 @@
+{
+  "_comment": "Structured investigation report — the pipeline's output. evidence[] rows back every non-null field; verdict comes from the typed verifier (scripts/jev_verify.py).",
+  "seed": {
+    "provided": {"name": "", "phone": "", "email": "", "social": ""},
+    "resolved": {"full_name": "", "phone": "", "email": "", "note": ""},
+    "resolved_from": "phonebook|chat|user|unresolved"
+  },
+  "verdict": {
+    "identity": "match|no_match|insufficient",
+    "confidence": 0.0,
+    "basis": ["2+ independent signals: linkedin headline + company domain + handle"],
+    "collision_risk": "high|medium|low",
+    "same_person_note": ""
+  },
+  "profile": {
+    "aliases": ["nickname / handle / alternate spelling"],
+    "socials": {
+      "linkedin": "", "x": "", "facebook": "", "github": "",
+      "instagram": "", "medium": "", "substack": "", "crunchbase": "",
+      "website": "",
+      "sherlock_hits": ["site:handle"]
+    },
+    "career": {
+      "headline": "", "current_role": "", "company": "",
+      "past_companies": []
+    },
+    "ventures": {"founded": [{"name": "", "year": 0, "url": ""}], "patents": []},
+    "location": {"city": "", "country": ""},
+    "publications": [{"title": "", "url": ""}]
+  },
+  "footprint": {
+    "phone_indexed": "found|clean",
+    "email_indexed": "found|clean",
+    "breach_hits": "none|known",
+    "notes": ""
+  },
+  "evidence": [
+    {"url": "", "signal": "what matched and why it matters", "source": "dork|sherlock|social|phonebook"}
+  ],
+  "recommendations": [
+    "what to do with this report (directory card, contact check, nothing)"
+  ]
+}
