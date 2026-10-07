@@ -30,19 +30,61 @@ to do with it (directory card, contact check, background research).
 1. **Plan the sweep** — `scripts/dorks.py --name ... --phone ... --email ...
    --social ...` → ordered query plan + candidate handles. Pure script,
    deterministic, same seed = same plan.
-2. **Run the sweep** — execute the queries via your search tool, batched and
-   paced (space requests; upstream bans are real). Collect `{url, signal,
-   source}` rows: signal = WHAT matched (name in headline, same company,
-   same location). Zero hits on a phone/email is a finding: clean footprint.
+2. **Run the sweep** — `scripts/sweep.py plan.json --out evidence.jsonl
+   [--pace 2.0] [--max 30]` executes the plan via Exa (mcporter), paced,
+   writes one JSONL row per hit, and NEVER masks engine failures (each
+   failed call becomes an `{"error": ...}` row). Prefer this over ad-hoc
+   shell loops: a `cmd || fallback | head` pipe swallows errors and looks
+   like a clean empty result. Collect `{url, signal, source}` rows:
+   signal = WHAT matched (name in headline, same company, same location).
+   Zero hits on a phone/email is a finding: clean footprint.
 3. **Sherlock pivot** (`pipx install sherlock-project`) — feed canonical
-   handles; `--json --timeout 8`. Hits = profile EXISTS, not identity.
+   handles. Pitfall: `--json` has returned empty output on this install —
+   use text mode `--print-found --timeout 8` and parse the
+   `[+] site: url` lines. Hits = profile EXISTS, not identity.
 4. **Typed verify** — `scripts/jev_verify.py verify_identity(name, phone,
-   evidence)` → verdict + confidence. Confidence < 0.5 on `match` → treat as
-   `insufficient`. Non-Latin names ride in the state text; criteria keys stay
+   evidence)` → verdict + confidence. Evidence rows MUST carry the keys
+   `source`, `signal`, `url` (exactly what the script reads — templates and
+   reports that write different key names break the call). Confidence < 0.5
+   on `match` → treat as `insufficient`; 0.5–0.6 → provisional, flag it in
+   the report. Non-Latin names ride in the state text; criteria keys stay
    Latin (`c1..cN`).
-5. **Report** — fill `templates/report.json`: seed, verdict, profile,
+5. **Validate** — `scripts/validate_report.py report.json [--strict]`.
+   Checks JSON validity, required keys, evidence-row keys, and match-below-
+   0.6 warnings. Run it before delivering; hand-written JSON breaks more
+   often than it should. Both report shapes are accepted: multi-candidate
+   (`candidates[]`, template shape) and deep-dive (verdict/confidence/
+   evidence at top level).
+6. **Report** — fill `templates/report.json`: seed, verdict, profile,
    footprint (is the phone/email indexed anywhere?), evidence, and
-   recommendations. Every non-null field traces to an evidence row.
+   recommendations. Every non-null field traces to an evidence row. Save to
+   a stable path (`~/.hermes/data/osint/<slug>.json`), then deliver:
+   `publish-link <path> <slug>` → https://hermes.nesher.co/f/<slug>. Never
+   paste local filesystem paths into chat.
+
+## Ambiguous seeds — disambiguate, then re-run enriched
+A name-only seed can map to several real people (e.g. "Ran Margalit" → 3
+verified candidates). When the sweep returns 2+ plausible distinct people:
+1. Report the candidates with per-candidate confidence and ASK the user for
+   one disambiguator (company, city, email, how they know the person).
+2. Re-run the pipeline with the enriched seed (name + company/city). The
+   enriched run is a DEEP DIVE: fetch and extract press mentions, corporate
+   registries, patents, and public profile mirrors (Humantic etc.), then
+   typed-verify the single identity.
+
+## Founder investigations — corporate registries
+For founders/executives, add these to the sweep — they surface team, dates
+and co-founders search engines often miss:
+- **IVC Data & Insights** (ivc-online.com Google-Card) — Israeli-registered
+  entity cards list management, co-founders, prior roles. Example find: the
+  ShelfX card listed the full co-founder team including family members
+  (CEO's wife as COO) and a co-founder the user knew personally.
+- CB Insights people pages, Tracxn, PitchBook profiles, TheCompanyCheck,
+  aVenture — US company cards.
+- Patents (patents.google.com) — inventor records tie identity to domain;
+  citation counts signal significance.
+- Co-founder/family connections found here are PUBLIC data — report them
+  factually ("registry lists X as co-founder"), never from private memory.
 
 ## Seed combinations
 - **Name only** — highest collision risk; distinguishing signals (company,

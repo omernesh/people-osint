@@ -7,10 +7,10 @@ Built for: contact checks, background research, directory enrichment, speaker/fo
 ## What it does
 
 1. **Plans the sweep** — `scripts/dorks.py` turns the seed into a deterministic query plan (site-scoped dorks, phone in 3 formats, email exact search, cross-refs) + candidate handles. Same seed = same plan.
-2. **Runs the sweep** — you execute the queries with your search tool (the agent does this natively), collecting evidence rows: URL + *what matched* + source.
-3. **Pivots handles** — [sherlock-project](https://github.com/sherlock-project/sherlock) maps candidate handles across ~400 sites (existence, not identity).
-4. **Typed verdict** — `scripts/jev_verify.py` returns `match | no_match | insufficient` + calibrated confidence via a typed-choice classifier. **No prose LLM anywhere** — decisions are structured choices, the report is JSON.
-5. **Structured report** — `templates/report.json`: seed, verdict, profile (socials/career/ventures/location/publications), digital footprint (is the phone/email indexed? breach hits?), evidence array, recommendations.
+2. **Runs the sweep** — `scripts/sweep.py` executes the plan via Exa (mcporter), paced, appending `{query, engine, title, url}` rows to a JSONL evidence file; engine failures are recorded, never silently swallowed.
+3. **Pivots handles** — [sherlock-project](https://github.com/sherlock-project/sherlock) maps candidate handles across ~400 sites (existence, not identity). Use text mode `--print-found`; `--json` has been flaky.
+4. **Typed verdict** — `scripts/jev_verify.py` returns `match | no_match | insufficient` + calibrated confidence via a typed-choice classifier. Evidence rows carry `source`/`signal`/`url` keys. **No prose LLM anywhere** — decisions are structured choices, the report is JSON.
+5. **Validates & reports** — `scripts/validate_report.py` checks JSON validity, evidence keys and confidence bounds before delivery; `templates/report.json` is the schema: seed, verdict, profile (socials/career/ventures/location/publications), digital footprint (is the phone/email indexed? breach hits?), evidence array, recommendations.
 
 The evidence array is the audit trail: every non-null field traces to a URL. That's also your GDPR story — everything shown is public and traceable.
 
