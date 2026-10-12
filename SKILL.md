@@ -38,7 +38,7 @@ to do with it (directory card, contact check, background research).
    like a clean empty result. Collect `{url, signal, source}` rows:
    signal = WHAT matched (name in headline, same company, same location).
    Zero hits on a phone/email is a finding: clean footprint.
-3. **Sherlock pivot** (`pipx install sherlock-project`) — feed canonical
+3. **Sherlock pivot (opt-in; skip by default - slow, existence-only)** (`pipx install sherlock-project`) — feed canonical
    handles. Pitfall: `--json` has returned empty output on this install —
    use text mode `--print-found --timeout 8` and parse the
    `[+] site: url` lines. Hits = profile EXISTS, not identity.

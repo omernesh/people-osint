@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from jev_verify import PROVISIONAL_MAX  # noqa: E402  single source for thresholds
+
 REQUIRED_TOP = ["seed"]
 EVIDENCE_KEYS = {"source", "signal", "url"}
 
@@ -74,8 +77,8 @@ def main():
             if not 0.0 <= conf <= 1.0:
                 problems.append(f"candidate {label}: confidence {conf} out of "
                                 f"range")
-            if c.get("verdict") == "match" and conf < 0.6:
-                warns.append(f"candidate {label}: match @ {conf} < 0.6 - "
+            if c.get("verdict") == "match" and conf < PROVISIONAL_MAX:
+                warns.append(f"candidate {label}: match @ {conf} < {PROVISIONAL_MAX} - "
                              f"treat as provisional, flag in report")
 
     if problems:
