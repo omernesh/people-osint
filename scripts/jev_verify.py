@@ -16,6 +16,9 @@ import urllib.request
 API_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-1.13.0"
 HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
+MATCH_MIN_CONFIDENCE = 0.5   # a `match` below this is downgraded to insufficient
+PROVISIONAL_MAX = 0.6        # 0.5-0.6 is a provisional match; flag it in the report
+MAX_EVIDENCE_ROWS = 12
 MIN_CONFIDENCE = 0.35  # below this → None (leave uncategorized, retry later)
 
 # Latin-script support is solid; non-Latin scripts (Hebrew, Arabic,
@@ -116,15 +119,44 @@ def classify_retry(title, text, categories, attempts=3, backoff=2.0):
     return None, 0.0
 
 
+def _select_evidence(evidence, limit=MAX_EVIDENCE_ROWS):
+    """Deduped by URL, rows that carry a signal first (stable), capped.
+
+    Ranking by information content rather than raw file order keeps the
+    verdict from depending on which query happened to run first.
+    """
+    seen, rows = set(), []
+    for e in evidence or []:
+        u = e.get("url", "")
+        if u in seen:
+            continue
+        seen.add(u)
+        rows.append(e)
+    rows.sort(key=lambda e: 0 if e.get("signal") else 1)
+    return rows[:limit]
+
+
+def verify_identity_retry(seed_name, seed_phone, evidence, attempts=3, backoff=2.0):
+    """verify_identity() with retry/backoff; raises the last error after `attempts`."""
+    for i in range(1, attempts + 1):
+        try:
+            return verify_identity(seed_name, seed_phone, evidence)
+        except Exception:  # noqa: BLE001 - transport/API hiccup
+            if i == attempts:
+                raise
+            time.sleep(backoff * i)
+
+
 def verify_identity(seed_name, seed_phone, evidence, timeout=60):
     """Typed OSINT identity check → (verdict, confidence).
 
     verdict: 'match' | 'no_match' | 'insufficient'
-    Confidence < 0.5 on 'match' → treat as insufficient (skill rule).
+    Confidence < MATCH_MIN_CONFIDENCE (0.5) on 'match' → treat as insufficient (skill rule).
     """
     ev_lines = "\n".join(
         "- [%s] %s (%s)" % (e.get("source", "?"), e.get("signal", ""),
-                            e.get("url", "")) for e in (evidence or [])[:12])
+                            e.get("url", ""))
+        for e in _select_evidence(evidence))
     state = (
         "Seed identity: name=%r phone=%r\n\nPublic evidence found:\n%s\n\n"
         "Does the public evidence refer to the SAME person as the seed?"
@@ -152,7 +184,7 @@ def verify_identity(seed_name, seed_phone, evidence, timeout=60):
     choice = ans.get("choice")
     conf = float(ans.get("confidence") or 0.0)
     if choice in ("match", "no_match", "insufficient"):
-        if choice == "match" and conf < 0.5:
+        if choice == "match" and conf < MATCH_MIN_CONFIDENCE:
             return "insufficient", conf
         return choice, conf
     return "insufficient", conf

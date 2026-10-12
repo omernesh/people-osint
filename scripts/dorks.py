@@ -11,6 +11,7 @@ fed to sherlock for cross-platform existence.
 import argparse
 import json
 import re
+from urllib.parse import urlparse
 
 DORK_SITES = ["linkedin.com", "x.com", "facebook.com", "crunchbase.com",
               "github.com", "instagram.com", "youtube.com", "medium.com",
@@ -22,7 +23,37 @@ def slug_handle(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
-def plan(name="", phone="", email="", social=""):
+def local_phone(digits: str, default_cc: str = "") -> str:
+    """Local-format digits for an international number, else the input as-is.
+
+    Only strips a country code we actually know: `default_cc` or the 972
+    prefix. Never guesses for other numbers.
+    """
+    for cc in (default_cc, "972"):
+        if cc and digits.startswith(cc) and len(digits) > len(cc) + 6:
+            return ("0" if cc != "1" else "") + digits[len(cc):]
+    return digits
+
+
+def hyphenate(local: str) -> str:
+    """10 digits -> 3-3-4; anything else -> "" (no guessing)."""
+    if len(local) == 10:
+        return f"{local[:3]}-{local[3:6]}-{local[6:]}"
+    return ""
+
+
+def handle_from_url(social: str) -> str:
+    """Last path segment of a profile URL, ignoring query/fragment.
+    `profile.php?id=123` falls back to the id."""
+    u = urlparse(social if "//" in social else "//" + social)
+    seg = [x for x in u.path.split("/") if x]
+    if seg and seg[-1] != "profile.php":
+        return seg[-1]
+    m = re.search(r"(?:^|&)id=([^&]+)", u.query)
+    return m.group(1) if m else ""
+
+
+def plan(name="", phone="", email="", social="", region="", default_cc=""):
     out = {"queries": [], "handles": [], "note": ""}
     q = out["queries"]
     digits = re.sub(r"\D", "", phone or "")
@@ -33,15 +64,17 @@ def plan(name="", phone="", email="", social=""):
             q.append({"query": f'"{n}" site:{site}',
                       "goal": f"{site} profile for {n}"})
         q.append({"query": f'"{n}"', "goal": f"general search for {n}"})
-        q.append({"query": f'"{n}" Israel', "goal": f"local-context search for {n}"})
+        if region:
+            q.append({"query": f'"{n}" {region}',
+                      "goal": f"local-context search for {n}"})
         if email:
             q.append({"query": f'"{n}" "{email}"',
                       "goal": "name+email cross-ref"})
         if phone and digits:
             q.append({"query": f'"{n}" "{digits}"',
                       "goal": "name+phone cross-ref"})
-        local = re.sub(r"^972", "0", digits)
-        if local and digits and len(digits) > 7:
+        local = local_phone(digits, default_cc)
+        if local != digits and len(digits) > 7:
             q.append({"query": f'"{n}" "{local}"',
                       "goal": "name+local-format phone cross-ref"})
         # handle candidates
@@ -58,10 +91,10 @@ def plan(name="", phone="", email="", social=""):
             for site in PHONE_SITES:
                 q.append({"query": f'"{digits}" site:{site}',
                           "goal": f"phone indexed on {site}"})
-        local = re.sub(r"^972", "0", digits)
-        if local and len(local) > 7:
+        local = local_phone(digits, default_cc)
+        if local != digits and len(local) > 7:
             q.append({"query": f'"{local}"', "goal": "local-format phone search"})
-        hy = f"{local[:3]}-{local[3:6]}-{local[6:]}" if len(local) >= 9 else ""
+        hy = hyphenate(local)
         if hy:
             q.append({"query": f'"{hy}"', "goal": "hyphenated phone search"})
 
@@ -75,9 +108,9 @@ def plan(name="", phone="", email="", social=""):
 
     if social:
         q.append({"query": f'"{social}"', "goal": "exact social profile"})
-        m = re.search(r"/([^/\?]+)/?$", social)
-        if m:
-            out["handles"].append(m.group(1))
+        h = handle_from_url(social)
+        if h:
+            out["handles"].append(h)
 
     # dedupe, keep order
     seen = set()
@@ -100,6 +133,10 @@ if __name__ == "__main__":
     ap.add_argument("--phone", default="")
     ap.add_argument("--email", default="")
     ap.add_argument("--social", default="")
+    ap.add_argument("--region", default="",
+                    help="optional locale word added to one name query; none by default")
+    ap.add_argument("--default-cc", default="",
+                    help="country calling code to strip for the local-format phone (e.g. 972, 44)")
     a = ap.parse_args()
-    print(json.dumps(plan(a.name, a.phone, a.email, a.social),
+    print(json.dumps(plan(a.name, a.phone, a.email, a.social, a.region, a.default_cc),
                      ensure_ascii=False, indent=1))
