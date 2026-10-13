@@ -132,13 +132,48 @@ and co-founders search engines often miss:
 - **Any combination** — cross-ref queries (`"name" "phone"`) are the most
   reliable `match` basis.
 
+## Network mining — "who do I know in X?"
+When the ask is a SECTOR MAP over the user's own network ("who from my
+contacts works in banking?"), a keyword scan of contacts is step 0 — never
+the deliverable. Run the pipeline over the shortlist:
+1. **Pull + filter internal sources.** Google Contacts via
+   `gws people people connections list --params '{"resourceName":"people/me","pageSize":1000,"personFields":"names,organizations,phoneNumbers,emailAddresses"}' --page-all --page-limit 100`
+   — the param is `personFields` here, NOT `readMask` (connections rejects
+   readMask with a 400). Filter by sector keywords in BOTH scripts — for
+   banking: bank/leumi/poalim/mizrahi/discont/CAL/visa/max/iscard/amex and
+   בנק/בנקאות/לאומי/פועלים/מזרחי/דיסקונט/הבינלאומי. Drop brand-name false
+   positives (a chocolate-shop "Max" hit is not the Max credit card).
+2. **Shortlist** by seniority/strategic value (C-level and heads first);
+   a keyword hit list of 30 collapses to ~10 actionable seeds.
+3. **Run the FULL pipeline per shortlisted person** — enrich each seed from
+   its contact indicators (email/phone), then dorks → sweep → cluster →
+   criteria_verify → optional sherlock pivot. Drive it with a script that
+   writes per-person dirs under `~/.hermes/data/osint/<sector>-sweep/`
+   and a summary.json; run it as a background process (10 people ≈ 15 min).
+4. **Cross-reference WhatsApp via the chatlytics/lextrove MCP ONLY** (never
+   the gateway API directly): `chatlytics_directory search=<fragment>`
+   finds org-tagged contacts AND groups; `get_complex_analytics
+   endpoint=group-members|participant-names chat_id=<g.us>` lists who sits
+   with the user in work groups — shared-group membership is the warmest
+   door in the report. Expect first-name-only saves and `resolve_entity`
+   ambiguity on common first names — match by phone JID,
+   not by name, and ask when 2+ candidates tie.
+5. **Report in tiers**: verified (`match`), right-person-found/conservative
+   (relevance high but JEV `insufficient` — common names; report the cluster
+   size + top URLs, not just the verdict), and gaps (non-Latin names,
+   unresolvable collisions) — plus the WhatsApp layer (groups, tagged
+   contacts, shared membership). Internal PII never leaves local dirs.
+
 ## Pitfalls
 - **Name collisions are the killer.** Common names return unrelated
   businesses, other people, deceased relatives. Never single-hit match.
 - **Phone numbers are rarely indexed** — absence of phone hits is normal.
 - **The typed classifier is Latin-script only** — non-Latin names ride in the
   state text, criteria keys stay `c1..cN`; non-Latin-only evidence →
-  phone-signal fallback.
+  phone-signal fallback. `cluster.py`'s name extractor is Latin-only too — a
+  Hebrew-name seed clusters under org-name buckets ("Crunchbase Company")
+  and the top-candidate display misleads; transliterate the seed or inspect
+  those runs manually instead of trusting the display name.
 - **Sherlock false positives:** profile-existence ≠ identity. Squatters exist.
 - **Breach-data temptation:** stay out of dumped/purchased datasets — public
   search engines only. If a breach hit surfaces organically in search, note
