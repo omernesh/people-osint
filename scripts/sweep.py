@@ -15,7 +15,7 @@ Exit codes: 0 ok (individual failures are marked status=engine_error per row),
 
 Usage:
   python3 sweep.py plan.json --out evidence.jsonl [--pace 2.0] [--max 30]
-  python3 sweep.py --query '"Ran Margalit"' --out evidence.jsonl
+  python3 sweep.py --query '"Jane Q. Public"' --out evidence.jsonl
 """
 import argparse
 import json
