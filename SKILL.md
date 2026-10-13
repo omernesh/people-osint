@@ -27,6 +27,18 @@ to do with it (directory card, contact check, background research).
   2+ independent signals (phone/company/location/handle) before `match`.
 
 ## Pipeline flow
+0. **Enrich the seed (never settle for name-only)** — `scripts/enrich.py
+   --name ... [--phone] [--email] [--social] [--indicators-file hints.json]
+   [--sources gws] [--evidence-file evidence.jsonl]`. Pulls extra identity
+   indicators from (a) agent-provided internal-resource hints (e.g.
+   Chatlytics / Lextrove MCP lookups — save as JSON), (b) Google Contacts +
+   Gmail headers via `gws`, (c) mining the evidence snippets themselves.
+   Explicit seed values always win; additions carry provenance. Pass the
+   result into dorks.py (`dorks_args` in the output) — a phone/email
+   unlocks cross-reference queries, the strongest match basis. If a
+   re-sweep finds new indicators on the web, re-run enrich and repeat.
+   Internal-resource data stays local (`~/.hermes/data/osint/` only —
+   never in the repo, never in published reports).
 1. **Plan the sweep** — `scripts/dorks.py --name ... --phone ... --email ...
    --social ...` → ordered query plan + candidate handles. Pure script,
    deterministic, same seed = same plan.
@@ -39,7 +51,7 @@ to do with it (directory card, contact check, background research).
    signal = WHAT matched (name in headline, same company, same location).
    Zero hits on a phone/email is a finding: clean footprint.
 3. **Cluster the evidence** — `scripts/cluster.py evidence.jsonl
-   [--seed-name "Ran Margalit"] [--top 5]` groups rows into
+   [--seed-name "<full name>"] [--top 5]` groups rows into
    candidate-person clusters (deterministic name-key clustering;
    seed-aware attribution pulls rows mentioning the seed into the seed's
    cluster). Output: ranked clusters with size/URLs/domains + count of
@@ -85,7 +97,7 @@ to do with it (directory card, contact check, background research).
 scoring, submission CSV export) in `eval/` — see `eval/README.md`.
 
 ## Ambiguous seeds — disambiguate, then re-run enriched
-A name-only seed can map to several real people (e.g. "Ran Margalit" → 3
+A name-only seed can map to several real people (e.g. a common full name → 3
 verified candidates). When the sweep returns 2+ plausible distinct people:
 1. Report the candidates with per-candidate confidence and ASK the user for
    one disambiguator (company, city, email, how they know the person).

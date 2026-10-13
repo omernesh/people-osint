@@ -1,6 +1,6 @@
 # Evaluation Harness Spec — people-osint
 
-**Status:** draft (2026-10-13) · **Owner:** Omer · **Implementation:** eval/ (in progress)
+**Status:** draft (2026-10-13) · **Owner:** repo maintainer · **Implementation:** eval/ (in progress)
 
 This spec defines the measurement layer for the people-osint skill: how we
 score pipeline quality, how we prove an upgrade helped, and how we submit
@@ -42,8 +42,9 @@ worse, or just different?
 ### Seed set for regression runs
 
 Minimum: 3 seeds of different types (one name-only — collision stress; one
-name+phone; one email or social). "Ran Margalit" (name-only, 3 known real
-candidates) is the standing regression seed.
+name+phone; one email or social). Maintain a stable name-only seed with 3
+known real candidates as the standing regression seed — kept in the local
+regression data dir (`~/.hermes/data/osint/`), NOT in this repo.
 
 ## Track B — External benchmark (People Search Bench)
 
