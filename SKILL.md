@@ -165,8 +165,25 @@ the deliverable. Run the pipeline over the shortlist:
    contacts, shared membership). Internal PII never leaves local dirs.
 
 ## Pitfalls
-- **Name collisions are the killer.** Common names return unrelated
-  businesses, other people, deceased relatives. Never single-hit match.
+- **Contact cards are stale, sometimes by years.** An org on a contact card
+  (or an email on that org's domain) proves HISTORICAL employment at most.
+  Treat every internally-sourced org/title as a lead, never a fact; confirm
+  current employment from fresh web evidence (or recent shared-group
+  activity) before repeating it in a report. A stale card + zero current
+  evidence = "unverified, likely stale" — say that, not "confirmed".
+- **Verify current role via LinkedIn + employer sources before reporting.**
+  Search `"<name>" <sector keywords>` on the web FIRST (LinkedIn profiles,
+  the employer's own management page, stock-profile sites, recent project
+  posts/case studies tagging the person). People move; titles on cards age.
+  Even LinkedIn itself can lag — recent third-party signals (case-study
+  tags, press releases, company pages) outrank an old profile's "Current"
+  badge. Follow the co-mover trail: when one person moves, their close
+  collaborators often moved with them.
+- **Transliteration variants kill name dorks.** Israeli contact cards mix
+  spellings (Laskin/Lascin, Coen/Cohen, Tsabari/Zabari). If a sweep returns
+  nothing person-shaped, regenerate the dorks with common variant spellings
+  (K↔C, single↔double letters, ph↔f, -berg↔-burg) before concluding
+  "no footprint".
 - **Phone numbers are rarely indexed** — absence of phone hits is normal.
 - **The typed classifier is Latin-script only** — non-Latin names ride in the
   state text, criteria keys stay `c1..cN`; non-Latin-only evidence →
