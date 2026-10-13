@@ -38,29 +38,51 @@ to do with it (directory card, contact check, background research).
    like a clean empty result. Collect `{url, signal, source}` rows:
    signal = WHAT matched (name in headline, same company, same location).
    Zero hits on a phone/email is a finding: clean footprint.
-3. **Sherlock pivot (opt-in; skip by default - slow, existence-only)** (`pipx install sherlock-project`) — feed canonical
+3. **Cluster the evidence** — `scripts/cluster.py evidence.jsonl
+   [--seed-name "Ran Margalit"] [--top 5]` groups rows into
+   candidate-person clusters (deterministic name-key clustering;
+   seed-aware attribution pulls rows mentioning the seed into the seed's
+   cluster). Output: ranked clusters with size/URLs/domains + count of
+   unattributed rows.
+4. **Criteria-grounded verify + ranking** — `scripts/criteria_verify.py
+   --name ... --evidence-file evidence.jsonl [--top 5]` (new default path):
+   builds seed criteria (name/phone/email/social/identity), grades each
+   candidate cluster per criterion via typed-choice JEV calls
+   (met / partially_met / not_met), then runs the existing
+   `verify_identity` typed verdict per candidate and ranks:
+   match > insufficient > no_match, then relevance grade, then cluster
+   size. The flat `scan.py` path remains for single-subject quick checks.
+5. **Sherlock pivot (opt-in; skip by default - slow, existence-only)** (`pipx install sherlock-project`) — feed canonical
    handles. Pitfall: `--json` has returned empty output on this install —
    use text mode `--print-found --timeout 8` and parse the
    `[+] site: url` lines. Hits = profile EXISTS, not identity.
-4. **Typed verify** — `scripts/jev_verify.py verify_identity(name, phone,
+6. **Typed verify** — `scripts/jev_verify.py verify_identity(name, phone,
    evidence)` → verdict + confidence. Evidence rows MUST carry the keys
    `source`, `signal`, `url` (exactly what the script reads — templates and
    reports that write different key names break the call). Confidence < 0.5
    on `match` → treat as `insufficient`; 0.5–0.6 → provisional, flag it in
    the report. Non-Latin names ride in the state text; criteria keys stay
    Latin (`c1..cN`).
-5. **Validate** — `scripts/validate_report.py report.json [--strict]`.
+7. **Validate** — `scripts/validate_report.py report.json [--strict]`.
    Checks JSON validity, required keys, evidence-row keys, and match-below-
    0.6 warnings. Run it before delivering; hand-written JSON breaks more
    often than it should. Both report shapes are accepted: multi-candidate
    (`candidates[]`, template shape) and deep-dive (verdict/confidence/
    evidence at top level).
-6. **Report** — fill `templates/report.json`: seed, verdict, profile,
+8. **Score the report** — `scripts/report_score.py report.json` →
+   structural completeness 0–100 (weighted field coverage; weights adapted
+   from the People Search Bench structural metric). "Best candidate" for
+   multi-candidate reports = rank 1, never max raw confidence.
+9. **Report** — fill `templates/report.json`: seed, verdict, profile,
    footprint (is the phone/email indexed anywhere?), evidence, and
    recommendations. Every non-null field traces to an evidence row. Save to
    a stable path (`~/.hermes/data/osint/<slug>.json`), then deliver:
    `publish-link <path> <slug>` → https://hermes.nesher.co/f/<slug>. Never
    paste local filesystem paths into chat.
+
+**Self-eval (before/after regression):** protocol and metrics defined in
+`eval/SPEC.md`; bench harness (People Search Bench query set, padded nDCG
+scoring, submission CSV export) in `eval/` — see `eval/README.md`.
 
 ## Ambiguous seeds — disambiguate, then re-run enriched
 A name-only seed can map to several real people (e.g. "Ran Margalit" → 3
