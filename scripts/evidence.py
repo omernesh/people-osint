@@ -52,16 +52,32 @@ def to_jev_rows(rows):
     out, seen = [], set()
     for r in rows:
         url = (r.get("url") or "").strip()
-        if is_error_row(r) or not url or url in seen:
+        if is_error_row(r) or not url:
+            continue
+        if url in seen:
+            # duplicate URL: merge structured payloads into the kept row so a
+            # later enrichment row (e.g. career) isn't dropped by dedupe
+            for kept in out:
+                if kept["url"] == url:
+                    for extra in ("career",):
+                        if r.get(extra) and not kept.get(extra):
+                            kept[extra] = r[extra]
+                    break
             continue
         seen.add(url)
         q = r.get("query", "")
-        out.append({
+        row = {
             "url": url,
             "source": r.get("source") or (f"{r.get('engine', 'search')}: {q}" if q else r.get("engine", "?")),
             "signal": r.get("signal") or r.get("snippet") or r.get("title") or "",
             "query": q,
-        })
+        }
+        # pass through optional structured payloads (career, etc.) so the
+        # caller's enrichment columns survive the JEV projection
+        for extra in ("career",):
+            if r.get(extra):
+                row[extra] = r[extra]
+        out.append(row)
     return out
 
 
