@@ -23,6 +23,34 @@ def slug_handle(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+# Transliteration variant rules for Latin-script surnames (Israeli contact
+# cards mix spellings). Each rule maps a pattern to a replacement; applied
+# per rule, never recursively. Deterministic and capped.
+VARIANT_RULES = [
+    (re.compile(r"k", re.IGNORECASE), "c"),          # Laskin -> Lascin
+    (re.compile(r"c", re.IGNORECASE), "k"),          # Cohen -> Kohen
+    (re.compile(r"ph", re.IGNORECASE), "f"),         # Yoseph -> Yosef
+    (re.compile(r"berg\b", re.IGNORECASE), "burg"),  # Greenberg -> Greenburg
+    (re.compile(r"burg\b", re.IGNORECASE), "berg"),
+    (re.compile(r"y", re.IGNORECASE), "i"),          # Maymon -> Maimon
+    (re.compile(r"([a-z])\1", re.IGNORECASE), r"\1"),  # Sasson -> Sason
+]
+
+MAX_VARIANTS = 6
+
+
+def last_name_variants(last: str) -> list:
+    """Deterministic transliteration variants of a Latin last name."""
+    out = []
+    if not last or not last.isascii():
+        return out
+    for rx, repl in VARIANT_RULES:
+        v = rx.sub(repl, last)
+        if v != last and v.isalpha() and v.lower() not in {x.lower() for x in out + [last]}:
+            out.append(v)
+    return out[:MAX_VARIANTS]
+
+
 def local_phone(digits: str, default_cc: str = "") -> str:
     """Local-format digits for an international number, else the input as-is.
 
@@ -64,6 +92,16 @@ def plan(name="", phone="", email="", social="", region="", default_cc=""):
             q.append({"query": f'"{n}" site:{site}',
                       "goal": f"{site} profile for {n}"})
         q.append({"query": f'"{n}"', "goal": f"general search for {n}"})
+        # transliteration variants — capped, LinkedIn + general only
+        parts = [p for p in re.split(r"[^a-zA-Z0-9]+", n) if p]
+        if len(parts) >= 2:
+            f_name, l_name = parts[0], parts[-1]
+            for v in last_name_variants(l_name)[:3]:
+                vn = f"{f_name} {v}"
+                q.append({"query": f'"{vn}" site:linkedin.com',
+                          "goal": f"variant spelling ({l_name}->{v}) LinkedIn"})
+                q.append({"query": f'"{vn}"',
+                          "goal": f"variant spelling ({l_name}->{v}) general"})
         if region:
             q.append({"query": f'"{n}" {region}',
                       "goal": f"local-context search for {n}"})
