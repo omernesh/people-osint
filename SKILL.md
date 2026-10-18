@@ -180,7 +180,7 @@ the deliverable. Run the pipeline over the shortlist:
   badge. Follow the co-mover trail: when one person moves, their close
   collaborators often moved with them.
 - **Transliteration variants kill name dorks.** Israeli contact cards mix
-  spellings (Laskin/Lascin, Coen/Cohen, Tsabari/Zabari). If a sweep returns
+  spellings (Kaplan/Caplan, Coen/Cohen, Tsabari/Zabari). If a sweep returns
   nothing person-shaped, regenerate the dorks with common variant spellings
   (K↔C, single↔double letters, ph↔f, -berg↔-burg) before concluding
   "no footprint".

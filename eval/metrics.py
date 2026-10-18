@@ -75,7 +75,11 @@ def aggregate(rows, total_queries=None):
       relevance_precision  mean padded nDCG over all queries (zero-padded)
       effective_coverage   TCR * mean(coverage), TCR = share of queries
                            with >= 1 qualified result
-      overall              equal-weight mean of the dimensions above
+      overall              equal-weight mean of the TWO dimensions above.
+                           NOT comparable to the bench's `overall`, which
+                           also averages in Information Utility (an LLM-
+                           graded third dimension this harness does not
+                           compute). Compare dimension by dimension.
       tcr, mean_coverage, n_queries, total_queries  (breakdown)
     """
     if total_queries is None:
@@ -94,7 +98,11 @@ def aggregate(rows, total_queries=None):
         qualified = r.get("num_qualified")
         if qualified is None:
             qualified = sum(1 for g in grades if g >= RELEVANCE_THRESHOLD)
-        ndcg_sum += padded_ndcg(grades, k)
+        # Relevance precision is ALWAYS padded nDCG@10 in the bench
+        # (benchmark/metrics.py compute_platform_scores uses q.ndcg_10);
+        # requested_k only sets the coverage yield denominator. Using
+        # requested_k here scored nDCG@15/@25 whenever a query asked for more.
+        ndcg_sum += padded_ndcg(grades, DEFAULT_K)
         cov_sum += coverage_score(qualified, k)
         if qualified >= 1:
             completed += 1

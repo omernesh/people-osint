@@ -16,7 +16,11 @@ Sources (all optional, all local, best-effort):
                               for phones / emails / profile handles.
 
 Rules: explicit CLI seeds are NEVER overwritten (they win); new values are
-deduplicated and carry provenance. PII stays on this machine — the enriched
+deduplicated and carry provenance. When sources disagree the most trusted
+fills the gap (internal hints > Google Contacts > other contacts > Gmail
+headers > web snippets); the losers are kept in "alternates". Web-mined
+values are unverified and may belong to a namesake — confirm them before
+treating a web-filled seed field as identity. PII stays on this machine — the enriched
 seed file must be written under the local osint data dir, never committed.
 
 Usage:
@@ -30,11 +34,33 @@ import json
 import re
 import subprocess
 import sys
+from email.utils import getaddresses
 from pathlib import Path
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-# international-ish phone: optional +, 9-15 digits with optional separators
-PHONE_RE = re.compile(r"(?:\+\d[\d\s\-().]{7,15}\d)|(?:\(?0\d{1,2}\)?[\s\-]?\d{3}[\s\-]?\d{4})")
+# international phone: "+" then 8-15 digits, separators allowed between
+# digits (counted by DIGIT, not by character, so "+44 (0) 20 7946 0958" is not
+# cut mid-number); or a trunk-0 local number. Never matched inside a longer
+# digit run (IDs, timestamps).
+PHONE_RE = re.compile(
+    r"(?<![\d+])(?:\+\d(?:[\s\-().]{0,3}\d){7,14}"
+    r"|\(?0\d{1,2}\)?[\s\-]?\d{3}[\s\-]?\d{4})(?!\d)")
+# a run of 4-digit years ("2019 2020", "1985-1990") is a date, not a phone
+_YEAR_RUN_RE = re.compile(r"(?:(?:19|20)\d{2}[\s\-–/,.]*)+")
+
+# merge precedence: lower tier wins when two sources offer the same field.
+# Internal hints are curated; the owner's address book beats a mail header;
+# anything mined from web snippets is unverified (may be a namesake's).
+_TIER = {"internal": 0, "gws:contacts": 1, "gws:otherContacts": 2,
+         "gws:gmail": 3, "web": 4}
+
+
+def _tier(origin: str) -> int:
+    if origin in _TIER:
+        return _TIER[origin]
+    if origin.startswith("web:"):
+        return _TIER["web"]
+    return _TIER["internal"]  # indicators-file "source" labels
 HANDLE_URL_RE = re.compile(
     r"https?://(?:www\.)?(?:linkedin\.com/in/|x\.com/|twitter\.com/|github\.com/|"
     r"instagram\.com/|facebook\.com/|medium\.com/@)([A-Za-z0-9._-]{2,50})"
@@ -49,7 +75,9 @@ def plausible_phone(raw: str) -> bool:
     d = digits(raw)
     if not (9 <= len(d) <= 15):
         return False
-    if re.fullmatch(r"(19|20)\d{2}[\d\s]*", raw.strip()):  # years / dates
+    # years / date ranges. The old check rejected anything STARTING with
+    # 19xx/20xx, which dropped every US number in area codes 201-209.
+    if _YEAR_RUN_RE.fullmatch(raw.strip()):
         return False
     return True
 
@@ -65,9 +93,13 @@ def gws_json(args: list[str], timeout: int = 30):
     if start < 0:
         return None
     try:
-        return json.loads(out[start:])
+        data = json.loads(out[start:])
     except Exception:
         return None
+    # an API error body ({"error": {...}}) is not data — treat as no response
+    if not isinstance(data, dict) or "error" in data:
+        return None
+    return data
 
 
 def _name_matches(name: str, tokens: list[str]) -> bool:
@@ -100,8 +132,11 @@ def harvest_gws_contacts(name: str) -> tuple[list[dict], list[str]]:
         for row in rows:
             person = row.get("person", row)
             names = [n.get("displayName", "") for n in person.get("names", []) or []]
-            if names and not any(_name_matches(n, tokens) for n in names if n):
-                continue  # name must match seed tokens on word boundaries
+            # name must match seed tokens on word boundaries. A NAMELESS row
+            # (search hit on an email/phone fragment) is skipped too: nothing
+            # ties its values to the seed person.
+            if not any(_name_matches(n, tokens) for n in names if n):
+                continue
             for e in person.get("emailAddresses", []) or []:
                 v = (e.get("value") or "").strip().lower()
                 if v:
@@ -118,10 +153,20 @@ def harvest_gws_contacts(name: str) -> tuple[list[dict], list[str]]:
 
 
 def harvest_gws_mail(name: str, max_msgs: int = 3) -> tuple[list[dict], list[str]]:
+    """Addresses from From/To headers whose DISPLAY NAME matches the seed.
+
+    Only the matching mailbox is taken. Taking every address in the header
+    harvested the mailbox owner's own address (To: me) and unrelated
+    co-recipients as the seed person's email — and merge() then promoted
+    the first one into the seed.
+    """
     found, notes = [], []
+    tokens = [t.lower() for t in name.split() if t]
+    phrase = name.replace('"', "").strip()
     data = gws_json(
         ["gmail", "users", "messages", "list", "--params",
-         json.dumps({"userId": "me", "q": name, "maxResults": max_msgs})]
+         json.dumps({"userId": "me", "q": f'from:"{phrase}" OR to:"{phrase}"',
+                     "maxResults": max_msgs})]
     )
     if not data:
         notes.append("gws gmail: no response")
@@ -137,9 +182,16 @@ def harvest_gws_mail(name: str, max_msgs: int = 3) -> tuple[list[dict], list[str
             continue
         headers = (msg.get("payload", {}) or {}).get("headers", []) or []
         for h in headers:
-            for v in EMAIL_RE.findall(h.get("value", "") or ""):
-                found.append({"field": "email", "value": v.lower(),
-                              "origin": "gws:gmail", "detail": f"header {h.get('name')}"})
+            if (h.get("name") or "").lower() not in ("from", "to", "cc"):
+                continue
+            for disp, addr in getaddresses([h.get("value", "") or ""]):
+                if not disp or not EMAIL_RE.fullmatch(addr or ""):
+                    continue
+                if not _name_matches(disp, tokens):
+                    continue
+                found.append({"field": "email", "value": addr.lower(),
+                              "origin": "gws:gmail",
+                              "detail": f"header {h.get('name')}"})
     return found, notes
 
 
@@ -149,15 +201,28 @@ def mine_evidence(path: Path) -> tuple[list[dict], list[str]]:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         return found, [f"evidence unreadable: {e}"]
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    rows = []
+    stripped = text.strip()
+    if stripped.startswith("["):  # JSON-array evidence (older callers)
         try:
-            row = json.loads(line)
+            rows = [r for r in json.loads(stripped) if isinstance(r, dict)]
         except json.JSONDecodeError:
-            continue
-        if row.get("status") == "engine_error" or not row.get("url"):
+            rows = []
+    else:
+        # split on "\n" only: str.splitlines() also breaks on U+2028/U+0085,
+        # which can sit raw inside a JSON string and would cut the row
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    for row in rows:
+        if row.get("status") == "engine_error" or row.get("error") or not row.get("url"):
             continue
         blob = " | ".join(str(row.get(k) or "") for k in ("title", "snippet", "signal"))
         for m in EMAIL_RE.findall(blob):
@@ -204,15 +269,31 @@ def load_indicators(path: Path) -> tuple[list[dict], list[str]]:
     return found, []
 
 
-def merge(seed: dict, found: list[dict]) -> tuple[dict, list[dict]]:
-    """Fill seed fields from found values; explicit seed values always win."""
+def _norm_key(field: str, value: str) -> tuple:
+    if field == "phone":
+        d = digits(value)
+        # compare on the trailing 9 digits so "+972 54…" and "054…" collide
+        return (field, d[-9:] if len(d) >= 9 else d)
+    return (field, value.strip().lower())
+
+
+def merge(seed: dict, found: list[dict],
+          alternates: list | None = None) -> tuple[dict, list[dict]]:
+    """Fill seed fields from found values; explicit seed values always win.
+
+    Among found values, the most trusted source wins (see _TIER), not the
+    first one in argument order. Values that lost (a second email, a phone
+    already covered by the seed) are appended to `alternates` with their
+    provenance instead of being silently dropped.
+    """
     added, seen = [], set()
-    def norm(field, v):
-        return (field, digits(v) if field == "phone" else v.lower()) if field == "phone" \
-            else (field, v.strip().lower())
-    for item in found:
+    for f in ("phone", "email"):
+        if seed.get(f):
+            seen.add(_norm_key(f, seed[f]))
+    ordered = sorted(enumerate(found), key=lambda p: (_tier(p[1].get("origin", "")), p[0]))
+    for _, item in ordered:
         field, value = item["field"], item["value"].strip()
-        key = norm(field, value)
+        key = _norm_key(field, value)
         if key in seen:
             continue
         seen.add(key)
@@ -221,6 +302,8 @@ def merge(seed: dict, found: list[dict]) -> tuple[dict, list[dict]]:
         if not seed.get(field):
             seed[field] = value
             added.append(item)
+        elif alternates is not None:
+            alternates.append(item)
     return seed, added
 
 
@@ -261,11 +344,13 @@ def main(argv=None) -> int:
         found += f
         notes += n
 
-    seed, added = merge(seed, found)
+    alternates: list[dict] = []
+    seed, added = merge(seed, found, alternates)
     handles = [i["value"] for i in found if i["field"] == "handle"]
     result = {
         "seed": seed,
         "added": added,
+        "alternates": alternates,
         "handles": sorted(set(handles)),
         "notes": notes,
         "dorks_args": ["--name", seed["name"]]

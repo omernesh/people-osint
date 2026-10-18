@@ -246,7 +246,8 @@ def test_map_rows_failed_query_absent_then_zero_padded():
 
 def test_build_sweep_cmd_uses_repeatable_queries():
     cmd = run_bench.build_sweep_cmd("/sc", ["q one", "q two"], "/o.jsonl", 2.0)
-    assert cmd[:2] == [sys.executable, "/sc/sweep.py"]
+    assert cmd[0] == sys.executable
+    assert Path(cmd[1]) == Path("/sc/sweep.py")  # OS-native separators
     assert cmd[cmd.index("--query"):] == ["--query", "q one", "--query", "q two"]
     assert "--max 2".split() == cmd[cmd.index("--max"):cmd.index("--max") + 2]
 

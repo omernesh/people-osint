@@ -81,19 +81,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
-    # multi-candidate shape: score scaffold + best candidate merged.
-    # "best" = rank 1 (the ranked verdict order), NOT max raw confidence —
-    # a confident no_match is not a good result.
-    candidates = report.get("candidates") or report.get("candidate")
-    if isinstance(candidates, list) and candidates:
-        ranked = [c for c in candidates if c.get("rank") is not None]
-        best = min(ranked, key=lambda c: c["rank"]) if ranked else candidates[0]
-        merged = {**report, **best}
-        result = score_report(merged)
-        result["shape"] = "multi-candidate"
-    else:
-        result = score_report(report)
-        result["shape"] = "deep-dive"
+    result = score_document(report)
     text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
@@ -101,6 +89,40 @@ def main(argv=None) -> int:
     else:
         print(text)
     return 0
+
+
+def score_document(report) -> dict:
+    """Score either report shape (deep-dive or multi-candidate)."""
+    if not isinstance(report, dict):
+        return {**score_report(report), "shape": "invalid"}
+    # multi-candidate shape: score scaffold + best candidate merged.
+    # "best" = rank 1 (the ranked verdict order), NOT max raw confidence —
+    # a confident no_match is not a good result.
+    candidates = report.get("candidates") or report.get("candidate")
+    if isinstance(candidates, dict):
+        candidates = [candidates]
+    if isinstance(candidates, list):
+        candidates = [c for c in candidates if isinstance(c, dict)]
+    if isinstance(candidates, list) and candidates:
+        ranked = [c for c in candidates if c.get("rank") is not None]
+        best = min(ranked, key=lambda c: c["rank"]) if ranked else candidates[0]
+        merged = {**report, **best}
+        # criteria_verify candidates carry verdict as a STRING ("match") plus
+        # a top-level confidence; the scaffold's verdict is a dict. Plain
+        # dict-merge replaced the dict with the string, so verdict.identity /
+        # .confidence / .basis always scored as missing.
+        if isinstance(best.get("verdict"), str):
+            base = report.get("verdict") if isinstance(report.get("verdict"), dict) else {}
+            v = {**base, "identity": best["verdict"]}
+            if best.get("confidence") is not None:
+                v["confidence"] = best["confidence"]
+            merged["verdict"] = v
+        result = score_report(merged)
+        result["shape"] = "multi-candidate"
+    else:
+        result = score_report(report)
+        result["shape"] = "deep-dive"
+    return result
 
 
 if __name__ == "__main__":

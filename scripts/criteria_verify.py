@@ -18,6 +18,7 @@ confidence, rank}]} — stdout or --out file. Exit 0 ok / 3 engine error.
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -45,12 +46,16 @@ def build_criteria(seed: dict) -> list[dict]:
             }
         )
     if seed.get("phone"):
+        tail = re.sub(r"\D", "", seed["phone"])[-7:]
         criteria.append(
             {
                 "id": "c_phone",
+                # the judge must SEE the number it is asked to find — the old
+                # text named "the seed number" without ever including it
                 "description": (
-                    f"The page associates the phone digits of the seed number "
-                    "(last 7+ digits) with this person."
+                    f"The page associates a phone number ending in '{tail}' "
+                    "(the seed number's last 7 digits, any formatting) with "
+                    "this person."
                 ),
             }
         )
@@ -87,7 +92,12 @@ def build_criteria(seed: dict) -> list[dict]:
     return criteria
 
 
-GRADE_MAP = {"met": 1.0, "partially_met": 0.5, "not_met": 0.0}
+# "insufficient" scores 0.0, like the bench (a criterion is met, partially
+# met, or not demonstrated). Leaving it out of the mean let a candidate with
+# one "met" and four "insufficient" criteria rank at relevance 1.0. Only an
+# engine failure (choice None) is excluded from the mean.
+GRADE_MAP = {"met": 1.0, "partially_met": 0.5, "not_met": 0.0,
+             "insufficient": 0.0}
 CHOICES = {
     "met": "criterion is clearly satisfied by the evidence",
     "partially_met": "criterion is suggested but not fully confirmed",
@@ -109,7 +119,8 @@ def grade_cluster(rows: list[dict], criteria: list[dict]) -> tuple[list[dict], f
             title=crit["id"],
             text=(
                 f"Criterion: {crit['description']}\n\n"
-                f"Seed-consistent evidence rows for this candidate:\n"
+                f"Evidence rows attributed to this candidate (not yet "
+                f"verified as the seed person):\n"
                 f"{evidence_text}\n\nDoes the evidence satisfy the criterion?"
             ),
             categories=CHOICES,

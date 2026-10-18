@@ -27,25 +27,37 @@ def slug_handle(name: str) -> str:
 # cards mix spellings). Each rule maps a pattern to a replacement; applied
 # per rule, never recursively. Deterministic and capped.
 VARIANT_RULES = [
-    (re.compile(r"k", re.IGNORECASE), "c"),          # Laskin -> Lascin
-    (re.compile(r"c", re.IGNORECASE), "k"),          # Cohen -> Kohen
+    (re.compile(r"(?<!c)k", re.IGNORECASE), "c"),    # Kaplan -> Caplan (not "ck")
+    (re.compile(r"c(?![hk])", re.IGNORECASE), "k"),  # Cohen -> Kohen (keep ch/ck)
     (re.compile(r"ph", re.IGNORECASE), "f"),         # Yoseph -> Yosef
     (re.compile(r"berg\b", re.IGNORECASE), "burg"),  # Greenberg -> Greenburg
     (re.compile(r"burg\b", re.IGNORECASE), "berg"),
-    (re.compile(r"y", re.IGNORECASE), "i"),          # Maymon -> Maimon
+    (re.compile(r"(?<=.)y", re.IGNORECASE), "i"),    # Maymon -> Maimon (not initial Y)
     (re.compile(r"([a-z])\1", re.IGNORECASE), r"\1"),  # Sasson -> Sason
 ]
 
 MAX_VARIANTS = 6
 
 
+def _case_like(src: str, repl: str) -> str:
+    """Replacement text in the case of the text it replaces (K -> C, k -> c)."""
+    return repl[:1].upper() + repl[1:] if src[:1].isupper() else repl
+
+
 def last_name_variants(last: str) -> list:
-    """Deterministic transliteration variants of a Latin last name."""
+    """Deterministic transliteration variants of a Latin last name.
+
+    Replacements keep the original capitalisation, so "Kaplan" -> "Caplan"
+    (not "caplan") — the variant is shown back in goals and reports.
+    """
     out = []
     if not last or not last.isascii():
         return out
     for rx, repl in VARIANT_RULES:
-        v = rx.sub(repl, last)
+        if "\\" in repl:
+            v = rx.sub(repl, last)
+        else:
+            v = rx.sub(lambda m, r=repl: _case_like(m.group(0), r), last)
         if v != last and v.isalpha() and v.lower() not in {x.lower() for x in out + [last]}:
             out.append(v)
     return out[:MAX_VARIANTS]
