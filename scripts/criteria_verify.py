@@ -106,6 +106,31 @@ CHOICES = {
 }
 
 
+def relevance_summary(results: list[dict], relevance: float | None) -> str:
+    """Human-readable grade WITH its denominator, e.g.
+    "0.20 (1/5 met, 4 insufficient)". "insufficient" counts as 0 in the
+    mean, so a bare 0.20 would read as "mostly contradicted" when it really
+    means "mostly unjudgeable" — the breakdown says which."""
+    counts = {}
+    for r in results:
+        counts[r.get("choice") or "error"] = counts.get(r.get("choice") or "error", 0) + 1
+    graded = sum(v for k, v in counts.items() if k != "error")
+    head = "n/a" if relevance is None else f"{relevance:.2f}"
+    parts = [f"{counts.get('met', 0)}/{graded} met"]
+    for k in ("partially_met", "not_met", "insufficient", "error"):
+        if counts.get(k):
+            label = "engine error (excluded)" if k == "error" else k
+            parts.append(f"{counts[k]} {label}")
+    return f"{head} ({', '.join(parts)})"
+
+
+def verdict_line(c: dict) -> str:
+    """One line per candidate: rank, name, verdict, then relevance with its
+    denominator — "#1 Jane Doe: match @0.91 | relevance 0.20 (1/5 met, 4 insufficient)"."""
+    return (f"#{c.get('rank')} {c.get('display')}: {c.get('verdict')} "
+            f"@{c.get('confidence')} | relevance {c.get('relevance_summary')}")
+
+
 def grade_cluster(rows: list[dict], criteria: list[dict]) -> tuple[list[dict], float | None]:
     """One typed-choice JEV call per criterion. Returns (results, grade)."""
     evidence_text = "\n".join(
@@ -184,6 +209,7 @@ def main(argv=None) -> int:
                 "size": c["size"],
                 "domains": c["domains"],
                 "relevance_grade": relevance,
+                "relevance_summary": relevance_summary(crit_results, relevance),
                 "criteria": crit_results,
                 "verdict": verdict,
                 "confidence": round(confidence, 3),
@@ -213,6 +239,8 @@ def main(argv=None) -> int:
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
         print(f"wrote {args.out} ({len(candidates)} candidate(s))")
+        for c in candidates:
+            print(verdict_line(c))
     else:
         print(text)
     return 0

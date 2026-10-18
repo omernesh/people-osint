@@ -184,3 +184,23 @@ def test_string_candidate_verdict_does_not_erase_scaffold_verdict():
     assert "verdict.identity" in r["present"]
     assert "verdict.basis" in r["present"]
     assert r["shape"] == "multi-candidate"
+
+
+def test_relevance_summary_shows_denominator():
+    results = [{"choice": "met"}] + [{"choice": "insufficient"}] * 4
+    assert criteria_verify.relevance_summary(results, 0.2) == "0.20 (1/5 met, 4 insufficient)"
+
+
+def test_relevance_summary_excludes_engine_errors_from_denominator():
+    results = [{"choice": "met"}, {"choice": "partially_met"}, {"choice": None}]
+    s = criteria_verify.relevance_summary(results, 0.75)
+    assert s == "0.75 (1/2 met, 1 partially_met, 1 engine error (excluded))"
+    assert criteria_verify.relevance_summary([{"choice": None}], None) == \
+        "n/a (0/0 met, 1 engine error (excluded))"
+
+
+def test_verdict_line_carries_summary():
+    c = {"rank": 1, "display": "Jane Doe", "verdict": "match", "confidence": 0.91,
+         "relevance_summary": "0.20 (1/5 met, 4 insufficient)"}
+    assert criteria_verify.verdict_line(c) == \
+        "#1 Jane Doe: match @0.91 | relevance 0.20 (1/5 met, 4 insufficient)"

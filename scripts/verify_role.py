@@ -6,10 +6,20 @@ fact. This module extracts structured title/employer signals from fetched
 evidence text (LinkedIn pages, employer management pages, stock-profile
 sites) and grades what they say about the claimed role:
 
-  confirmed   — a source with a date >= RECENCY_YEARS shows org+title
-  stale       — sources only show the claimed org in dated PAST entries
-                (or the LinkedIn "current" badge predates RECENCY_YEARS)
+  confirmed   — the claimed org carries an explicit Present/Current marker
+                in evidence that is itself FRESH (dated within
+                RECENCY_YEARS). The job's START year does not matter: a
+                role held since 2010 and shown as "Present" on a fresh page
+                is current.
+  stale       — the claimed org appears only in dated PAST entries, its
+                "Present" marker sits on evidence with no fresh date, or
+                fresh evidence shows a DIFFERENT current org
   unknown     — no usable title evidence at all
+
+Evidence freshness = the newest of: a date field on the row (date /
+published / fetched_at / crawled_at), any year in the row text, and the
+date a LinkedIn tenure badge implies ("Apr 2017 - Present (9 years)" was
+rendered in 2026).
 
 Usage (agent-facing): feed it evidence rows (title/url/snippet/date-like
 strings) + the claimed org; it returns the grade + the deciding source.
@@ -45,6 +55,30 @@ def _year(text: str) -> int:
     """First 4-digit year 1960-2099 in text, else 0."""
     m = re.search(r"\b(19[6-9]\d|20[0-9]\d)\b", text or "")
     return int(m.group(1)) if m else 0
+
+
+_DURATION_RE = re.compile(r"\(\s*(\d{1,2})\s*(?:yrs?|years?)\b", re.IGNORECASE)
+_YEARS_RE = re.compile(r"\b(19[6-9]\d|20[0-9]\d)\b")
+_DATE_FIELDS = ("date", "published", "published_at", "fetched_at", "crawled_at")
+
+
+def _max_year(text: str) -> int:
+    ys = [int(y) for y in _YEARS_RE.findall(text or "")]
+    return max(ys) if ys else 0
+
+
+def _seen_year(start: int, win: str) -> int:
+    """Year the entry was observed: start + rendered tenure, when shown."""
+    m = _DURATION_RE.search(win or "")
+    if start and m:
+        return start + int(m.group(1))
+    return start
+
+
+def evidence_year(row: dict) -> int:
+    """Freshness of one evidence row (0 = undated)."""
+    parts = [str(row.get(k, "")) for k in ("title", "snippet", "signal") + _DATE_FIELDS]
+    return _max_year(_norm_text(" ".join(parts)))
 
 
 def _window(text: str, start: int, limit: int, next_start: int) -> str:
@@ -89,7 +123,8 @@ def extract_titles(text: str) -> list:
         win = _window(text, m.end(), 120, nxt)
         y = _year(win) or _year(text[max(0, m.start() - 60):m.start()])
         present = bool(_PRESENT_RE.search(win))
-        out.append({"title": title, "org": org, "year": y, "current": present})
+        out.append({"title": title, "org": org, "year": y, "current": present,
+                    "seen": _seen_year(y, win)})
 
     # LinkedIn cache headers: "### <title> <sep> <org> (Current) <dates>"
     # sep is " - " / " · " on one line, or a newline with "Org · Full-time"
@@ -109,7 +144,8 @@ def extract_titles(text: str) -> list:
         win = win.split("###", 1)[0]
         y = _year(win)
         present = bool(_PRESENT_RE.search(win))
-        out.append({"title": title, "org": org, "year": y, "current": present})
+        out.append({"title": title, "org": org, "year": y, "current": present,
+                    "seen": _seen_year(y, win)})
 
     # stock-profile pipe rows: | Name | Deputy CEO, ... Org | ... |
     for m in re.finditer(
@@ -154,31 +190,38 @@ def grade(claimed_org: str, evidence: list) -> dict:
     confirms, stale_only, other_now = [], [], []
     for ev in evidence:
         text = " ".join(str(ev.get(k, "")) for k in ("title", "snippet"))
+        row_year = evidence_year(ev)
         for t in extract_titles(text):
             org = t.get("org") or ""
             year = t.get("year") or 0
+            # freshness of the EVIDENCE, not the job start: an explicit
+            # Present/Current marker on a fresh page means current, however
+            # long ago the role began
+            fresh = max(t.get("seen") or 0, row_year, year)
             # stock-profile rows carry the org inside the title text
             hit = org_matches(claimed, org) if org else (
                 t.get("org_from_title") and org_matches(claimed, t["title"]))
             entry = {"src": ev.get("url"), "title": t["title"],
-                     "org": org, "year": year}
+                     "org": org, "year": year, "evidence_year": fresh}
             if hit:
-                if t.get("current") and year and year >= cutoff:
+                if t.get("current") and fresh >= cutoff:
                     confirms.append(entry)
                 else:
                     stale_only.append(entry)
-            elif org and t.get("current") and year and year >= cutoff:
+            elif org and t.get("current") and fresh >= cutoff:
                 other_now.append(entry)
     if confirms:
         return {"grade": "confirmed", "sources": confirms[:3],
-                "reason": f"current role at {claimed_org} within {RECENCY_YEARS}y"}
+                "reason": f"Present/current at {claimed_org} on evidence dated "
+                          f"within {RECENCY_YEARS}y"}
     if other_now:
         return {"grade": "stale", "sources": other_now[:3],
                 "reason": "recent evidence shows a DIFFERENT current org — "
                           "claimed card org is historical"}
     if stale_only:
         return {"grade": "stale", "sources": stale_only[:3],
-                "reason": "only dated/past entries at the claimed org"}
+                "reason": "claimed org only in past entries, or its "
+                          "Present marker is on undated/old evidence"}
     return {"grade": "unknown", "reason": "no title evidence for claimed org"}
 
 

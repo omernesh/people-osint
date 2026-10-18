@@ -145,3 +145,39 @@ def test_stock_row_confirms_when_org_named_in_title():
     row = f"| Ms. Jane Doe | Chief Financial Officer, Acme Holdings | -- | {THIS_YEAR} |"
     g = grade("Acme Holdings", [{"url": "u", "snippet": row}])
     assert g["grade"] == "confirmed", g
+
+
+# ---------- Present = current; staleness = evidence freshness ----------
+
+def test_old_start_present_with_fresh_tenure_badge_is_confirmed():
+    # role began long ago; the rendered tenure dates the page to this year
+    yrs = THIS_YEAR - 2010
+    ev = [{"url": "u", "snippet":
+           f"### Head of Data - Acme Labs (Current) Mar 2010 - Present ({yrs} years 2 months)"}]
+    g = grade("Acme Labs", ev)
+    assert g["grade"] == "confirmed", g
+
+
+def test_old_start_present_with_fresh_row_date_is_confirmed():
+    ev = [{"url": "u", "snippet": "CTO at Acme Labs 2012 - Present",
+           "date": f"{THIS_YEAR}-03-01"}]
+    assert grade("Acme Labs", ev)["grade"] == "confirmed"
+
+
+def test_old_start_present_with_fresh_year_elsewhere_on_page_is_confirmed():
+    ev = [{"url": "u", "title": f"Speakers {THIS_YEAR}",
+           "snippet": "CTO at Acme Labs 2012 - Present"}]
+    assert grade("Acme Labs", ev)["grade"] == "confirmed"
+
+
+def test_old_start_present_with_only_old_evidence_is_not_confirmed():
+    ev = [{"url": "u", "snippet": "CTO at Acme Labs 2012 - Present",
+           "date": "2015-06-01"}]
+    g = grade("Acme Labs", ev)
+    assert g["grade"] == "stale", g
+
+
+def test_past_entry_on_fresh_page_is_still_stale():
+    ev = [{"url": "u", "snippet": "CTO at Acme Labs 2012 - 2016",
+           "date": f"{THIS_YEAR}-01-01"}]
+    assert grade("Acme Labs", ev)["grade"] == "stale"
