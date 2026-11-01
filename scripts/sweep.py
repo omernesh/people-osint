@@ -19,6 +19,8 @@ Usage:
 """
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -26,6 +28,20 @@ from pathlib import Path
 
 
 EXIT_ENGINE_ERROR = 3  # every query failed (outage, bad key, missing binary)
+
+
+def mcporter_argv():
+    """How to invoke mcporter. On Windows npm installs a .cmd, which subprocess
+    can't run by bare name; running it directly goes through cmd.exe, where a
+    query containing & runs as a command. So call its node entry point."""
+    exe = shutil.which("mcporter")
+    if os.name == "nt" and exe and exe.lower().endswith((".cmd", ".bat")):
+        cli = os.path.join(os.path.dirname(exe), "node_modules", "mcporter", "dist", "cli.js")
+        node = shutil.which("node")
+        if node and os.path.isfile(cli):
+            return [node, cli]
+        return ["mcporter"]
+    return [exe or "mcporter"]
 
 
 def run(cmd, timeout=60):
@@ -40,7 +56,7 @@ def run(cmd, timeout=60):
 
 def exa_search(query, num=5):
     """One Exa search via mcporter. Returns (ok, rows)."""
-    code, out = run(["mcporter", "call", "exa.web_search_exa",
+    code, out = run([*mcporter_argv(), "call", "exa.web_search_exa",
                      "query=" + query, f"numResults={num}"], timeout=90)
     if code != 0:
         return False, [{"error": f"mcporter exit {code}: {out[:200]}"}]
