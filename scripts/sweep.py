@@ -11,7 +11,7 @@ engine result is captured with its exit code; failures are recorded as
 {"error": ...} rows, never silently swallowed.
 
 Exit codes: 0 ok (individual failures are marked status=engine_error per row),
-2 no queries, 3 every query failed.
+2 no queries, 3 every query failed or Exa credits exhausted (sweep stops there).
 
 Usage:
   python3 sweep.py plan.json --out evidence.jsonl [--pace 2.0] [--max 30]
@@ -20,6 +20,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,7 +28,25 @@ import time
 from pathlib import Path
 
 
-EXIT_ENGINE_ERROR = 3  # every query failed (outage, bad key, missing binary)
+EXIT_ENGINE_ERROR = 3  # every query failed, or Exa credits ran out mid-sweep
+
+# mcporter exits 0 and prints this on stdout when the Exa tool call fails.
+EXA_ERROR_RE = re.compile(r"web_search_exa error \((\d{3})\)")
+CREDITS_ERROR = "credits exhausted"
+
+
+def exa_error_line(out):
+    """First stdout line carrying an `web_search_exa error (<code>)` marker,
+    as a (line, code) pair, or None."""
+    for line in out.splitlines():
+        m = EXA_ERROR_RE.search(line)
+        if m:
+            return line.strip(), m.group(1)
+    return None
+
+
+def is_credits_exhausted(rows):
+    return any(str(r.get("error", "")).startswith(CREDITS_ERROR) for r in rows)
 
 
 def mcporter_argv():
@@ -62,6 +81,12 @@ def exa_search(query, num=5):
         return False, [{"error": f"mcporter exit {code}: {out[:200]}"}]
     if not out:
         return False, [{"error": "empty output from exa (mcporter silent)"}]
+    err = exa_error_line(out)
+    if err:
+        line, ecode = err
+        if ecode == "402" or "exceeded your credits" in line:
+            return False, [{"error": f"{CREDITS_ERROR}: {line[:200]}"}]
+        return False, [{"error": f"exa error {ecode}: {line[:200]}"}]
     rows = parse_exa_text(out)
     if not rows:
         return False, [{"error": "no Title/URL lines parsed", "raw": out[:400]}]
@@ -135,6 +160,7 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     done = failed = 0
+    credits_out = False
     batch = queries[: args.max]
     for i, q in enumerate(batch):
         ok, rows = exa_search(q)
@@ -145,9 +171,20 @@ def main():
         failed += 0 if ok else 1
         print(f"[{done}/{len(batch)}] "
               f"{'OK ' if ok else 'ERR'} {q[:70]}")
+        if is_credits_exhausted(rows):
+            # Every remaining query would fail the same way: stop, don't burn them.
+            credits_out = True
+            print(f"stopped: Exa credits exhausted; skipped "
+                  f"{len(batch) - done} remaining queries", file=sys.stderr)
+            break
         if i < len(batch) - 1:
             time.sleep(args.pace)
     print(f"done: {done} queries ({failed} failed) -> {out}")
+    if credits_out:
+        # Partial evidence after an outage must not look like "no evidence".
+        print("engine_error: credits exhausted (Exa); sweep incomplete",
+              file=sys.stderr)
+        sys.exit(EXIT_ENGINE_ERROR)
     if done and failed == done:
         # Every query failed: an outage must not look like "no evidence".
         print("engine_error: all queries failed", file=sys.stderr)
