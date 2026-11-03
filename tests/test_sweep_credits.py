@@ -13,6 +13,12 @@ CREDITS = ("web_search_exa error (402): You have exceeded your credits limit. "
 GOOD = "Title: Example Page\nURL: https://example.com/a\nText: hello"
 
 
+@pytest.fixture(autouse=True)
+def _no_keys(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+
+
 def _fake(monkeypatch, outputs):
     calls = []
 
@@ -59,5 +65,5 @@ def test_sweep_stops_at_first_credits_error_and_exits_3(monkeypatch, tmp_path, c
     assert len(calls) == 2  # c, d never ran
     rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines()]
     assert [r["status"] for r in rows] == ["ok", "engine_error"]
-    assert rows[1]["error"].startswith("credits exhausted")
-    assert "engine_error: credits exhausted" in capsys.readouterr().err
+    assert "exa: credits exhausted" in rows[1]["error"]
+    assert "engine_error: all engines unavailable" in capsys.readouterr().err
